@@ -338,7 +338,9 @@ router.post('/analyze-and-suggest', async (req, res) => {
     }
     
     // 🤖 Get visa category suggestions from our database
+    console.log('🔍 Looking for visas:', { country, purpose });
     const suggestedVisas = suggestVisaCategories(country, purpose, uploadedFiles, profile);
+    console.log('📋 Found visas:', suggestedVisas.length, suggestedVisas.map(v => v.name));
     
     // 🤖 Use FREE Groq LLM to analyze profile and provide recommendations
     let aiAnalysis = null;
@@ -349,13 +351,7 @@ router.post('/analyze-and-suggest', async (req, res) => {
       console.error('⚠️ AI analysis unavailable:', error.message);
     }
     
-    if (suggestedVisas.length === 0 && !realVisaRequirements) {
-      return res.status(404).json({
-        success: false,
-        message: 'No matching visa categories found for this purpose and country'
-      });
-    }
-    
+    // Return suggestions even if empty - let frontend handle it
     res.json({
       success: true,
       suggestedVisas: suggestedVisas.slice(0, 5), // Top 5 from our database
