@@ -1,0 +1,562 @@
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import './Evaluation.css';
+
+const API_BASE = 'http://localhost:3001/api';
+
+const EvaluationPage = () => {
+  const navigate = useNavigate();
+  const [step, setStep] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  
+  // Step 1: User Info & Visa Selection
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    country: '',
+    visaType: ''
+  });
+  
+  // Available countries and visas
+  const [countries, setCountries] = useState([]);
+  const [availableVisas, setAvailableVisas] = useState([]);
+  const [visaDetails, setVisaDetails] = useState(null);
+  
+  // Step 2: Document Upload
+  const [documents, setDocuments] = useState([]);
+  const [uploadedFiles, setUploadedFiles] = useState([]);
+  
+  // Step 3: Extracted Data Confirmation
+  const [extractedData, setExtractedData] = useState(null);
+  const [confirmedData, setConfirmedData] = useState(null);
+  const [extracting, setExtracting] = useState(false);
+  
+  // Step 4: Processing
+  const [evaluationResult, setEvaluationResult] = useState(null);
+
+  // Load countries on mount
+  useEffect(() => {
+    fetchCountries();
+  }, []);
+
+  // Load visas when country changes
+  useEffect(() => {
+    if (formData.country) {
+      fetchVisaTypes(formData.country);
+    }
+  }, [formData.country]);
+
+  // Fetch countries
+  const fetchCountries = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/evaluation/countries`);
+      const data = await res.json();
+      setCountries(data.countries);
+    } catch (err) {
+      console.error('Error fetching countries:', err);
+    }
+  };
+
+  // Fetch visa types
+  const fetchVisaTypes = async (country) => {
+    try {
+      const res = await fetch(`${API_BASE}/evaluation/countries/${country}/visas`);
+      const data = await res.json();
+      setAvailableVisas(data.visas);
+    } catch (err) {
+      console.error('Error fetching visas:', err);
+    }
+  };
+
+  // Fetch visa requirements
+  const fetchVisaRequirements = async (country, visaType) => {
+    try {
+      const res = await fetch(`${API_BASE}/evaluation/requirements/${country}/${visaType}`);
+      const data = await res.json();
+      setVisaDetails(data);
+    } catch (err) {
+      console.error('Error fetching requirements:', err);
+    }
+  };
+
+  // Handle form input
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+    
+    if (name === 'visaType' && value) {
+      fetchVisaRequirements(formData.country, value);
+    }
+  };
+
+  // Handle file upload
+  const handleFileUpload = async (e, docType) => {
+    const files = Array.from(e.target.files);
+    setLoading(true);
+    setError('');
+    
+    try {
+      const formData = new FormData();
+      files.forEach(file => formData.append('documents', file));
+      
+      const res = await fetch(`${API_BASE}/upload`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!res.ok) throw new Error('Upload failed');
+      
+      const data = await res.json();
+      
+      // Add document type to uploaded files
+      const filesWithType = data.files.map(file => ({
+        ...file,
+        type: docType
+      }));
+      
+      setUploadedFiles(prev => [...prev, ...filesWithType]);
+      
+      // Track which documents have been uploaded
+      setDocuments(prev => {
+        const updated = [...prev];
+        if (!updated.includes(docType)) {
+          updated.push(docType);
+        }
+        return updated;
+      });
+    } catch (err) {
+      setError('File upload failed. Please try again.');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Remove uploaded file
+  const removeFile = (filename) => {
+    setUploadedFiles(prev => prev.filter(f => f.filename !== filename));
+  };
+
+  // Extract data from documents
+  const extractDocumentData = async () => {
+    setExtracting(true);
+    setError('');
+    
+    try {
+      const documentsForExtraction = uploadedFiles.map(file => ({
+        type: file.type,
+        path: file.path,
+        filename: file.filename
+      }));
+      
+      const res = await fetch(`${API_BASE}/evaluation/extract`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ documents: documentsForExtraction })
+      });
+      
+      if (!res.ok) throw new Error('Extraction failed');
+      
+      const data = await res.json();
+      setExtractedData(data.extractedData);
+      setConfirmedData(data.extractedData); // Initialize confirmed data
+      setStep(3);
+    } catch (err) {
+      setError('Document extraction failed. Please try again.');
+      console.error(err);
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  // Submit evaluation
+  const submitEvaluation = async () => {
+    setLoading(true);
+    setError('');
+    
+    try {
+      const res = await fetch(`${API_BASE}/evaluation/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...formData,
+          documents: uploadedFiles,
+          extractedData,
+          confirmedData
+        })
+      });
+      
+      if (!res.ok) throw new Error('Evaluation failed');
+      
+      const data = await res.json();
+      setEvaluationResult(data.result);
+      navigate('/results', { state: { result: data.result, formData } });
+    } catch (err) {
+      setError('Evaluation failed. Please try again.');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Navigation
+  const goToNextStep = () => {
+    if (step === 1) {
+      if (!formData.name || !formData.email || !formData.country || !formData.visaType) {
+        setError('Please fill in all required fields');
+        return;
+      }
+    } else if (step === 2) {
+      if (uploadedFiles.length === 0) {
+        setError('Please upload at least one document');
+        return;
+      }
+      extractDocumentData();
+      return;
+    } else if (step === 3) {
+      submitEvaluation();
+      return;
+    }
+    
+    setError('');
+    setStep(step + 1);
+  };
+
+  const goToPrevStep = () => {
+    setError('');
+    setStep(step - 1);
+  };
+
+  return (
+    <div className="evaluation-page">
+      <div className="eval-container">
+        {/* Progress Bar */}
+        <div className="progress-bar">
+          <div className={`progress-step ${step >= 1 ? 'active' : ''}`}>
+            <div className="step-number">1</div>
+            <div className="step-label">Visa Selection</div>
+          </div>
+          <div className={`progress-line ${step >= 2 ? 'active' : ''}`} />
+          <div className={`progress-step ${step >= 2 ? 'active' : ''}`}>
+            <div className="step-number">2</div>
+            <div className="step-label">Upload Documents</div>
+          </div>
+          <div className={`progress-line ${step >= 3 ? 'active' : ''}`} />
+          <div className={`progress-step ${step >= 3 ? 'active' : ''}`}>
+            <div className="step-number">3</div>
+            <div className="step-label">Confirm Details</div>
+          </div>
+        </div>
+
+        {/* Error Display */}
+        {error && (
+          <div className="error-message">
+            <span>⚠️ {error}</span>
+          </div>
+        )}
+
+        {/* Step Content */}
+        <div className="step-content">
+          {step === 1 && (
+            <StepOne 
+              formData={formData}
+              handleInputChange={handleInputChange}
+              countries={countries}
+              availableVisas={availableVisas}
+              visaDetails={visaDetails}
+            />
+          )}
+          
+          {step === 2 && (
+            <StepTwo 
+              visaDetails={visaDetails}
+              uploadedFiles={uploadedFiles}
+              handleFileUpload={handleFileUpload}
+              removeFile={removeFile}
+              loading={loading}
+            />
+          )}
+          
+          {step === 3 && (
+            <StepThree 
+              extractedData={extractedData}
+              confirmedData={confirmedData}
+              setConfirmedData={setConfirmedData}
+              extracting={extracting}
+            />
+          )}
+        </div>
+
+        {/* Navigation Buttons */}
+        <div className="nav-buttons">
+          {step > 1 && (
+            <button onClick={goToPrevStep} className="btn-secondary" disabled={loading || extracting}>
+              ← Back
+            </button>
+          )}
+          <button onClick={goToNextStep} className="btn-primary" disabled={loading || extracting}>
+            {extracting ? 'Analyzing Documents...' : loading ? 'Processing...' : step === 3 ? 'Complete Evaluation' : 'Continue →'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Step 1: Visa Selection
+const StepOne = ({ formData, handleInputChange, countries, availableVisas, visaDetails }) => (
+  <div className="step-one">
+    <h2>Tell Us About Yourself</h2>
+    <p className="step-description">Select the visa you're interested in and provide your contact information.</p>
+    
+    <div className="form-grid">
+      <div className="form-group">
+        <label>Full Name *</label>
+        <input
+          type="text"
+          name="name"
+          value={formData.name}
+          onChange={handleInputChange}
+          placeholder="John Doe"
+          required
+        />
+      </div>
+      
+      <div className="form-group">
+        <label>Email Address *</label>
+        <input
+          type="email"
+          name="email"
+          value={formData.email}
+          onChange={handleInputChange}
+          placeholder="john@example.com"
+          required
+        />
+      </div>
+      
+      <div className="form-group">
+        <label>Country *</label>
+        <select name="country" value={formData.country} onChange={handleInputChange} required>
+          <option value="">Select a country</option>
+          {countries.map(c => (
+            <option key={c.name} value={c.name}>{c.name}</option>
+          ))}
+        </select>
+      </div>
+      
+      <div className="form-group">
+        <label>Visa Type *</label>
+        <select name="visaType" value={formData.visaType} onChange={handleInputChange} required disabled={!formData.country}>
+          <option value="">Select a visa type</option>
+          {availableVisas.map(v => (
+            <option key={v.type} value={v.type}>{v.type}</option>
+          ))}
+        </select>
+      </div>
+    </div>
+    
+    {visaDetails && (
+      <div className="visa-info-box">
+        <h3>{visaDetails.visaType}</h3>
+        <p>{visaDetails.description}</p>
+        <div className="requirements-preview">
+          <strong>Required Documents:</strong>
+          <ul>
+            {visaDetails.requiredDocuments.map(doc => (
+              <li key={doc}>{formatDocType(doc)}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    )}
+  </div>
+);
+
+// Step 2: Document Upload
+const StepTwo = ({ visaDetails, uploadedFiles, handleFileUpload, removeFile, loading }) => {
+  const requiredDocs = visaDetails?.requiredDocuments || [];
+  const optionalDocs = visaDetails?.optionalDocuments || [];
+  
+  return (
+    <div className="step-two">
+      <h2>Upload Your Documents</h2>
+      <p className="step-description">Upload the required documents for your visa evaluation.</p>
+      
+      <div className="upload-sections">
+        <div className="upload-section">
+          <h3>Required Documents</h3>
+          {requiredDocs.map(docType => (
+            <DocumentUploader
+              key={docType}
+              docType={docType}
+              handleFileUpload={handleFileUpload}
+              uploadedFiles={uploadedFiles.filter(f => f.type === docType)}
+              removeFile={removeFile}
+              required={true}
+              loading={loading}
+            />
+          ))}
+        </div>
+        
+        {optionalDocs.length > 0 && (
+          <div className="upload-section">
+            <h3>Optional Documents</h3>
+            {optionalDocs.map(docType => (
+              <DocumentUploader
+                key={docType}
+                docType={docType}
+                handleFileUpload={handleFileUpload}
+                uploadedFiles={uploadedFiles.filter(f => f.type === docType)}
+                removeFile={removeFile}
+                required={false}
+                loading={loading}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+      
+      <div className="uploaded-summary">
+        <strong>{uploadedFiles.length} document(s) uploaded</strong>
+      </div>
+    </div>
+  );
+};
+
+// Document Uploader Component
+const DocumentUploader = ({ docType, handleFileUpload, uploadedFiles, removeFile, required, loading }) => (
+  <div className="doc-uploader">
+    <label className="doc-label">
+      {formatDocType(docType)} {required && <span className="required">*</span>}
+    </label>
+    <div className="upload-area">
+      <input
+        type="file"
+        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+        onChange={(e) => handleFileUpload(e, docType)}
+        disabled={loading}
+        multiple
+        id={`upload-${docType}`}
+      />
+      <label htmlFor={`upload-${docType}`} className="upload-label">
+        📄 Choose files or drag here
+      </label>
+    </div>
+    {uploadedFiles.length > 0 && (
+      <div className="uploaded-files">
+        {uploadedFiles.map(file => (
+          <div key={file.filename} className="uploaded-file">
+            <span>{file.originalName}</span>
+            <button onClick={() => removeFile(file.filename)} className="remove-btn">×</button>
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+);
+
+// Step 3: Confirm Extracted Data
+const StepThree = ({ extractedData, confirmedData, setConfirmedData, extracting }) => {
+  if (extracting || !extractedData) {
+    return (
+      <div className="step-three loading">
+        <div className="spinner"></div>
+        <h3>Analyzing your documents...</h3>
+        <p>This may take a moment. We're extracting your information using AI.</p>
+      </div>
+    );
+  }
+  
+  return (
+    <div className="step-three">
+      <h2>Confirm Your Information</h2>
+      <p className="step-description">Please review and confirm the information we extracted from your documents.</p>
+      
+      <div className="extracted-data">
+        {/* Education */}
+        {extractedData.education && extractedData.education.length > 0 && (
+          <div className="data-section">
+            <h3>📚 Education</h3>
+            {extractedData.education.map((edu, idx) => (
+              <div key={idx} className="data-item">
+                <div><strong>{edu.degree}</strong></div>
+                <div>{edu.institution} • {edu.year}</div>
+                {edu.field && <div className="text-muted">{edu.field}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+        
+        {/* Experience */}
+        {extractedData.experience && extractedData.experience.length > 0 && (
+          <div className="data-section">
+            <h3>💼 Work Experience ({extractedData.totalExperienceYears} years total)</h3>
+            {extractedData.experience.map((exp, idx) => (
+              <div key={idx} className="data-item">
+                <div><strong>{exp.role}</strong></div>
+                <div>{exp.company} • {exp.duration} months</div>
+              </div>
+            ))}
+          </div>
+        )}
+        
+        {/* Salary */}
+        {extractedData.salary && (
+          <div className="data-section">
+            <h3>💰 Salary Information</h3>
+            <div className="data-item">
+              <strong>{extractedData.salary.currency} {extractedData.salary.amount.toLocaleString()}</strong>
+              <span> ({extractedData.salary.frequency || 'annual'})</span>
+            </div>
+          </div>
+        )}
+        
+        {/* Skills */}
+        {extractedData.skills && extractedData.skills.length > 0 && (
+          <div className="data-section">
+            <h3>🛠️ Skills</h3>
+            <div className="skills-list">
+              {extractedData.skills.map((skill, idx) => (
+                <span key={idx} className="skill-tag">{skill}</span>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        {/* Languages */}
+        {extractedData.languages && extractedData.languages.length > 0 && (
+          <div className="data-section">
+            <h3>🌍 Languages</h3>
+            {extractedData.languages.map((lang, idx) => (
+              <div key={idx} className="data-item">
+                <strong>{lang.language}</strong>
+                {lang.testScore && <span> • {lang.testScore}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      
+      <div className="confirmation-note">
+        <p>✓ This information looks accurate and I'm ready to proceed with the evaluation.</p>
+      </div>
+    </div>
+  );
+};
+
+// Helper function
+const formatDocType = (type) => {
+  const map = {
+    resume: 'Resume / CV',
+    degree: 'Degree Certificate',
+    jobOffer: 'Job Offer Letter',
+    salaryProof: 'Salary Proof / Pay Slip',
+    languageCert: 'Language Certificate',
+    portfolio: 'Portfolio / Work Samples',
+    other: 'Other Documents'
+  };
+  return map[type] || type;
+};
+
+export default EvaluationPage;
