@@ -39,30 +39,43 @@ const upload = multer({
 });
 
 // Upload route - handles multiple files
-router.post('/', upload.array('documents', 10), (req, res) => {
-  try {
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ success: false, error: 'No files uploaded' });
+router.post('/', (req, res, next) => {
+  console.log('📁 Upload request received');
+  
+  upload.array('documents', 10)(req, res, (err) => {
+    if (err) {
+      console.error('❌ Multer error:', err.message);
+      return res.status(400).json({ success: false, error: err.message });
     }
     
-    const uploadedFiles = req.files.map(file => ({
-      filename: file.filename,
-      originalName: file.originalname,
-      path: file.path,
-      size: file.size,
-      mimetype: file.mimetype,
-      url: `/uploads/${file.filename}`
-    }));
-    
-    res.json({
-      success: true,
-      message: 'Files uploaded successfully',
-      files: uploadedFiles
-    });
-  } catch (error) {
-    console.error('Upload error:', error);
-    res.status(500).json({ success: false, error: 'File upload failed', details: error.message });
-  }
+    try {
+      console.log('📁 Files received:', req.files?.length || 0);
+      
+      if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ success: false, error: 'No files uploaded' });
+      }
+      
+      const uploadedFiles = req.files.map(file => ({
+        filename: file.filename,
+        originalName: file.originalname,
+        path: file.path,
+        size: file.size,
+        mimetype: file.mimetype,
+        url: `/uploads/${file.filename}`
+      }));
+      
+      console.log('✅ Upload successful:', uploadedFiles.length, 'files');
+      
+      return res.status(200).json({
+        success: true,
+        message: 'Files uploaded successfully',
+        files: uploadedFiles
+      });
+    } catch (error) {
+      console.error('❌ Upload processing error:', error);
+      return res.status(500).json({ success: false, error: 'File upload failed', details: error.message });
+    }
+  });
 });
 
 // Upload single file
