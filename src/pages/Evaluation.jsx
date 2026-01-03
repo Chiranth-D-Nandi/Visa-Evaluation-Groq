@@ -150,7 +150,14 @@ const EvaluationPage = () => {
         body: uploadFormData
       });
       
-      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(`Upload failed: ${res.status} ${res.statusText}`);
+      }
+      
+      const text = await res.text();
+      console.log('Upload response:', text);
+      
+      const data = text ? JSON.parse(text) : { success: false, error: 'Empty response' };
       
       if (data.success) {
         setUploadedFiles(prev => ({
@@ -163,7 +170,7 @@ const EvaluationPage = () => {
       }
     } catch (err) {
       console.error('Upload error:', err);
-      setError('Failed to upload documents');
+      setError('Failed to upload documents: ' + err.message);
     } finally {
       setLoading(false);
     }
