@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import Groq from 'groq-sdk';
+import { createRequire } from 'module';
 
 /**
  * PRODUCTION-GRADE Document Extraction Service
@@ -18,12 +19,13 @@ const groq = process.env.GROQ_API_KEY ? new Groq({
 
 const MODEL = 'llama-3.3-70b-versatile';
 
-// Dynamic import for pdf-parse
+// Fix for pdf-parse test file issue - use require instead of import
+const require = createRequire(import.meta.url);
 let pdfParse;
 const loadPdfParse = async () => {
   if (!pdfParse) {
-    const module = await import('pdf-parse');
-    pdfParse = module.default;
+    // Use require to avoid the test file issue with dynamic import
+    pdfParse = require('pdf-parse/lib/pdf-parse.js');
   }
   return pdfParse;
 };
